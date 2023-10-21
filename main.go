@@ -7,20 +7,23 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
+
+	"golang.org/x/exp/constraints"
 )
 
 func main() {
 	// filter pattern
 	flagPattern := flag.String("p", "", "filter by pattern")
-	// flagAll := flag.Bool("a", false, "all files including hidden files")
+	flagAll := flag.Bool("a", false, "all files including hidden files")
 	flagNumberRecords := flag.Int("n", 0, "number of records")
 
 	// order flags
-	// hasOrderByTime := flag.Bool("t", false, "sort by time, oldest first")
-	// hasOrderBySize := flag.Bool("s", false, "sort by file size, smallest first")
-	// hasOrderReverse := flag.Bool("r", false, "reverse order while sorting")
+	hasOrderByTime := flag.Bool("t", false, "sort by time, oldest first")
+	hasOrderBySize := flag.Bool("s", false, "sort by file size, smallest first")
+	hasOrderReverse := flag.Bool("r", false, "reverse order while sorting")
 
 	flag.Parse()
 
@@ -36,23 +39,42 @@ func main() {
 	}
 
 	fs := []file{}
-
 	for _, dir := range dirs {
-		f, err := getFile(dir, false)
-		if err != nil {
-			panic(err)
-		}
+		isHidden := isHidden(dir.Name(), path)
 
-		isMatched, err := regexp.MatchString("(?i)" + *flagPattern, f.name)
-		if err != nil {
-			panic(err)
-		}
-
-		if !isMatched{
+		if isHidden && !*flagAll {
 			continue
 		}
 
+		if *flagPattern != "" {
+			isMatched, err := regexp.MatchString("(?i)" + *flagPattern, dir.Name())
+			if err != nil {
+				panic(err)
+			}
+
+			if !isMatched{
+				continue
+			}
+		}
+
+		f, err := getFile(dir, isHidden)
+		if err != nil {
+			panic(err)
+		}
+
 		fs = append(fs, f)
+	}
+
+	if !*hasOrderBySize || !*hasOrderByTime {
+		orderByName(fs, *hasOrderReverse)
+	}
+
+	if *hasOrderBySize && !*hasOrderByTime {
+		orderBySize(fs, *hasOrderReverse)
+	}
+
+	if *hasOrderByTime {
+		orderByTime(fs, *hasOrderReverse)
 	}
 
 	if *flagNumberRecords == 0 || *flagNumberRecords > len(fs) {
@@ -60,6 +82,44 @@ func main() {
 	}
 
 	printList(fs, *flagNumberRecords)
+}
+
+func mySort[T constraints.Ordered](i, j T, isReverse bool) bool {
+	if isReverse {
+		return i > j
+	}
+
+	return i < j
+}
+
+func orderByTime(files []file, isReverse bool){
+	sort.SliceStable(files, func(i, j int) bool{
+		return mySort(
+			files[i].modificationTime.Unix(),
+			files[j].modificationTime.Unix(),
+			isReverse,
+		)
+	})
+}
+
+func orderByName(files []file, isReverse bool){
+	sort.SliceStable(files, func(i, j int) bool{
+		return mySort(
+			strings.ToLower(files[i].name),
+			strings.ToLower(files[j].name),
+			isReverse,
+		)
+	})
+}
+
+func orderBySize(files []file, isReverse bool){
+	sort.SliceStable(files, func(i, j int) bool {
+		return mySort(
+			files[i].size,
+			files[j].size,
+			isReverse,
+		)
+	})
 }
 
 func printList(fs []file, nRecords int){
@@ -133,4 +193,8 @@ func isImage(f file) bool {
 	return strings.HasSuffix(f.name, png) ||
 	strings.HasSuffix(f.name, jpg) ||
 	strings.HasSuffix(f.name, gif)
+}
+
+func isHidden(fileName, basePath string) bool {
+	return strings.HasPrefix(fileName, ".")
 }
