@@ -1,4 +1,4 @@
 # edls
 
 # References
-* https://ed.team/cursos/go
+https://ed.team/cursos/go
